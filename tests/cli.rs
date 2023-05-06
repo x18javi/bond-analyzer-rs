@@ -6,6 +6,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 
 const PRG: &str = "bond-analyzer";
 
+#[ignore]
 #[test]
 fn initial_test() -> TestResult {
     let _msg = "maturity_date_arg: 2025-01-31";

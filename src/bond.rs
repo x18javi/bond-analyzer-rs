@@ -23,11 +23,11 @@ pub enum BondCalculatorError {
     #[error(
         "invalid daycount value [ {daycount} ]. Has to be one of: nasd30/360, act/act, act360, act365, eur30/360."
     )]
-    DaycountError { daycount: String },
-    #[error("tried to create a bad date with {year} {month} {day}. Cannot continue.")]
-    DateError { year: i32, month: u32, day: u32 },
+    Daycount { daycount: String },
+    #[error("tried to create a bad date with year: {0} month: {1} day: {2}. Cannot continue.")]
+    Date(i32, u32, u32),
     #[error("couldn't access element in cashflows. Cannot continue.")]
-    CurveError,
+    Curve,
 }
 
 impl Bond {
@@ -35,16 +35,13 @@ impl Bond {
         let coupon = bond.coupon;
 
         let day_count = DayCountConvention::from_str(&bond.daycount).map_err(|_| {
-            BondCalculatorError::DaycountError {
+            BondCalculatorError::Daycount {
                 daycount: bond.daycount,
             }
         })?;
 
-        let cashflow_curve = build_curve_dates(
-            &bond.maturity_date_arg,
-            &bond.settlementdate,
-            &bond.frequency,
-        )?;
+        let cashflow_curve =
+            build_curve_dates(bond.maturity_date_arg, bond.settlementdate, bond.frequency)?;
 
         Ok(Self {
             coupon,
@@ -94,15 +91,15 @@ impl Bond {
         let prev_coupon = self
             .cashflow_curve
             .last()
-            .ok_or(BondCalculatorError::CurveError)
+            .ok_or(BondCalculatorError::Curve)
             .and_then(|next_coupon| {
                 next_coupon
                     .checked_sub_months(Months::new(12 / self.frequency))
-                    .ok_or(BondCalculatorError::DateError {
-                        year: next_coupon.year(),
-                        month: next_coupon.month(),
-                        day: next_coupon.day(),
-                    })
+                    .ok_or(BondCalculatorError::Date(
+                        next_coupon.year(),
+                        next_coupon.month(),
+                        next_coupon.day(),
+                    ))
             })?;
 
         let days_since_last_coupon: f64 =
@@ -175,11 +172,11 @@ fn ndays_in_month(year: i32, month: u32) -> Option<u32> {
     } else {
         (year, month + 1)
     };
-    let d = NaiveDate::from_ymd_opt(y, m, 1);
-    match d {
-        Some(d) => Some(d.pred_opt().unwrap().day()),
-        _ => None,
-    }
+    NaiveDate::from_ymd_opt(y, m, 1).map(|date| {
+        date.pred_opt()
+            .unwrap_or_else(|| panic!("Couldn't subtract 1 day from {}-{}-1", y, m))
+            .day()
+    })
 }
 
 fn round_to_3dp(x: f64) -> String {
@@ -188,24 +185,24 @@ fn round_to_3dp(x: f64) -> String {
 }
 
 fn build_curve_dates(
-    maturity_date: &NaiveDate,
-    settlement_date: &NaiveDate,
-    frequency: &u32,
+    maturity_date: NaiveDate,
+    settlement_date: NaiveDate,
+    frequency: u32,
 ) -> Result<Vec<NaiveDate>, BondCalculatorError> {
     let mut curve: Vec<NaiveDate> = vec![];
-    let mut cf_date: NaiveDate = maturity_date.clone();
+    let mut cf_date: NaiveDate = maturity_date;
 
     curve.push(cf_date);
     loop {
         cf_date = cf_date
             .checked_sub_months(Months::new(12 / frequency))
-            .ok_or_else(|| BondCalculatorError::DateError {
-                year: cf_date.year(),
-                month: cf_date.month(),
-                day: cf_date.day(),
-            })?;
+            .ok_or(BondCalculatorError::Date(
+                cf_date.year(),
+                cf_date.month(),
+                cf_date.day(),
+            ))?;
 
-        if cf_date <= *settlement_date {
+        if cf_date <= settlement_date {
             break;
         }
 
@@ -219,7 +216,7 @@ fn build_curve_dates(
             }
         }
         let cf_date = NaiveDate::from_ymd_opt(year, month, day)
-            .ok_or_else(|| BondCalculatorError::DateError { year, month, day })?;
+            .ok_or(BondCalculatorError::Date(year, month, day))?;
 
         curve.push(cf_date);
     }
@@ -243,7 +240,7 @@ mod tests {
         let settlement_date = NaiveDate::from_ymd_opt(2023, 05, 03).unwrap();
         let frequency = 2;
 
-        let uk_2025 = build_curve_dates(&maturity_date, &settlement_date, &frequency);
+        let uk_2025 = build_curve_dates(maturity_date, settlement_date, frequency);
 
         let predicted = vec![
             NaiveDate::from_ymd_opt(2025, 01, 31).unwrap(),
@@ -262,7 +259,7 @@ mod tests {
         let settlement_date = NaiveDate::from_ymd_opt(2023, 05, 35).unwrap();
         let frequency = 2;
 
-        let bad_curve = build_curve_dates(&maturity_date, &settlement_date, &frequency);
+        let bad_curve = build_curve_dates(maturity_date, settlement_date, frequency);
 
         println!("{:#?}", bad_curve);
     }
