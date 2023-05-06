@@ -10,7 +10,7 @@ pub struct BondCli {
     #[arg(short = 'p', long)]
     pub price: f64,
 
-    #[arg(short = 'd', long)]
+    #[arg(short = 'd', long, default_value = "act/act")]
     pub daycount: String,
 
     #[arg(short = 'f', long, default_value_t = 2)]
