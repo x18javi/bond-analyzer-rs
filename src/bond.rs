@@ -6,7 +6,7 @@ use yearfrac::DayCountConvention;
 
 use crate::args;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Bond {
     pub coupon: f64,
     pub price: f64,
@@ -18,7 +18,7 @@ pub struct Bond {
     pub ytm: f64,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum BondCalculatorError {
     #[error(
         "invalid daycount value [ {daycount} ]. Has to be one of: nasd30/360, act/act, act360, act365, eur30/360."
@@ -55,15 +55,15 @@ impl Bond {
         })
     }
 
-    fn cashflows(&self) -> BTreeMap<&NaiveDate, f64> {
-        let mut cashflows: BTreeMap<&NaiveDate, f64> = BTreeMap::new();
+    fn cashflows(&self) -> BTreeMap<NaiveDate, f64> {
+        let mut cashflows: BTreeMap<NaiveDate, f64> = BTreeMap::new();
         let coupon_split = self.coupon / self.frequency as f64;
 
         for d in self.cashflow_curve.iter() {
             if d == &self.maturity_date {
-                cashflows.insert(d, coupon_split + 100.0);
+                cashflows.insert(*d, coupon_split + 100.0);
             } else {
-                cashflows.insert(d, coupon_split);
+                cashflows.insert(*d, coupon_split);
             }
         }
         cashflows
@@ -108,14 +108,16 @@ impl Bond {
     }
 
     fn unaccrued_fraction(&self) -> f64 {
-        1.0 - self.accrued_fraction().unwrap_or_else(|_| panic!("accrued fraction does not exist!"))
+        1.0 - self
+            .accrued_fraction()
+            .unwrap_or_else(|_| panic!("accrued fraction does not exist!"))
     }
 
     fn bisection_find(&self, low: f64, high: f64) -> f64 {
         let mid = (high + low) / 2.0;
         let pv = self.sum_pv(mid);
 
-        if (high - low).abs() > 0.00000001 {
+        if (high - low).abs() > 1e-9 {
             if pv > self.price {
                 self.bisection_find(mid, high)
             } else {
@@ -253,14 +255,15 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn test_cashflow_dates_no_val() {
-        let maturity_date = NaiveDate::from_ymd_opt(2025, 01, 33).unwrap();
-        let settlement_date = NaiveDate::from_ymd_opt(2023, 05, 35).unwrap();
-        let frequency = 2;
+    fn test_accrued_fraction() {
+        let b = Bond { cashflow_curve: vec![], ..Default::default() };
+        assert_eq!(b.accrued_fraction(), Err(BondCalculatorError::Curve));
+    }  
 
-        let bad_curve = build_curve_dates(maturity_date, settlement_date, frequency);
-
-        println!("{:#?}", bad_curve);
-    }
+    #[test]
+    #[should_panic(expected = "accrued fraction does not exist!")]
+    fn test_unaccrued_fraction() {
+        let b = Bond { cashflow_curve: vec![], ..Default::default() };
+        b.unaccrued_fraction();
+    }       
 }

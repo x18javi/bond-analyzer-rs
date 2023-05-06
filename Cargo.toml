@@ -9,11 +9,13 @@ edition = "2021"
 clap = { version = "4.2", features = ["derive"] }
 chrono = "0.4"
 itertools = "0.10.5"
-yearfrac = "0.1"
+yearfrac = "0.1.*"
 tabled = "0.12.0"
 thiserror = "1.0"
-mockall = "0.11.4"
 
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "2"
+
+[patch.crates-io]
+yearfrac = { path = "../yearfrac" }
