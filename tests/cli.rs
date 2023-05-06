@@ -73,7 +73,28 @@ fn test_good_ytm() -> TestResult {
             "2020-02-20"
         ])
         .assert()
+        .success()
         .stdout(predicate::str::contains("1.396"));
 
+    Ok(())
+} 
+
+#[test]
+fn test_missing_price() -> TestResult {
+    Command::cargo_bin(PRG)?
+        .args(&[
+            "-c",
+            "1.375",
+            "-m",
+            "2025-01-31",
+            "-s",
+            "2020-02-20"
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains(
+                "the following required arguments were not provided:\n  --price <PRICE>"
+        ));
     Ok(())
 }    
