@@ -51,7 +51,7 @@ impl Bond {
             settlement_date: bond.settlementdate,
             maturity_date: bond.maturity_date_arg,
             cashflow_curve,
-            ytm: 0_f64,
+            ytm: 0.0,
         })
     }
 
@@ -61,7 +61,7 @@ impl Bond {
 
         for d in self.cashflow_curve.iter() {
             if d == &self.maturity_date {
-                cashflows.insert(d, coupon_split + 100_f64);
+                cashflows.insert(d, coupon_split + 100.0);
             } else {
                 cashflows.insert(d, coupon_split);
             }
@@ -70,18 +70,18 @@ impl Bond {
     }
 
     fn sum_pv(&self, rate: f64) -> f64 {
-        let mut pv = 0 as f64;
+        let mut pv = 0.0;
         let rate_adj = rate / self.frequency as f64;
 
         let f = &self.unaccrued_fraction();
         for (i, cf) in self.cashflows().values().enumerate() {
-            pv += cf / (((rate_adj) + 1_f64).powf(i as f64 + f))
+            pv += cf / (((rate_adj) + 1.0).powf(i as f64 + f))
         }
         pv
     }
 
     fn create_yield_to_maturity(&mut self) {
-        self.ytm = self.bisection_find(0_f64, 2_f64);
+        self.ytm = self.bisection_find(0.0, 2.0);
     }
 
     fn accrued_fraction(&self) -> Result<f64, BondCalculatorError> {
@@ -108,11 +108,11 @@ impl Bond {
     }
 
     fn unaccrued_fraction(&self) -> f64 {
-        1_f64 - self.accrued_fraction().unwrap()
+        1.0 - self.accrued_fraction().unwrap_or_else(|_| panic!("accrued fraction does not exist!"))
     }
 
     fn bisection_find(&self, low: f64, high: f64) -> f64 {
-        let mid = (high + low) / 2_f64;
+        let mid = (high + low) / 2.0;
         let pv = self.sum_pv(mid);
 
         if (high - low).abs() > 0.00000001 {
@@ -132,13 +132,13 @@ impl Bond {
         let f = &self.unaccrued_fraction();
 
         for (i, cf) in self.cashflows().values().enumerate() {
-            pv += cf * ((f + i as f64) / ((rate_adj + 1_f64).powf(f + i as f64)));
+            pv += cf * ((f + i as f64) / ((rate_adj + 1.0).powf(f + i as f64)));
         }
         (pv / self.price) / self.frequency as f64
     }
 
     fn modified_duration(&self) -> f64 {
-        self.macaulay_duration() / (1_f64 + (self.ytm) / self.frequency as f64)
+        self.macaulay_duration() / (1.0 + (self.ytm) / self.frequency as f64)
     }
 
     pub fn analysis_table(&mut self) -> Table {
@@ -147,7 +147,7 @@ impl Bond {
         let mut builder = Builder::default();
         builder
             .set_header(["Metric", "Result"])
-            .push_record(["YTM", &(round_to_3dp(self.ytm * 100_f64))])
+            .push_record(["YTM", &(round_to_3dp(self.ytm * 100.0))])
             .push_record(["Macaulay Duration", &round_to_3dp(self.macaulay_duration())])
             .push_record(["Modified Duration", &round_to_3dp(self.modified_duration())]);
 
@@ -158,7 +158,7 @@ impl Bond {
     pub fn cashflows_table(&self) -> Table {
         let mut builder = Builder::default();
         builder.set_header(["Date", "Coupon"]);
-        for (d, c) in self.cashflows().iter() {
+        for (d, c) in self.cashflows() {
             builder.push_record([d.to_string(), c.to_string()]);
         }
         let table = builder.build();
@@ -180,8 +180,8 @@ fn ndays_in_month(year: i32, month: u32) -> Option<u32> {
 }
 
 fn round_to_3dp(x: f64) -> String {
-    let x1 = x * 1000_f64;
-    format!("{}", x1.round() / 1000_f64)
+    let x1 = x * 1000.0;
+    format!("{}", x1.round() / 1000.0)
 }
 
 fn build_curve_dates(
