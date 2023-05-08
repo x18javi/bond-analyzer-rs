@@ -13,8 +13,8 @@ pub struct BondCli {
     #[arg(short = 'd', long, default_value = "act/act")]
     pub daycount: String,
 
-    #[arg(short = 'f', long, default_value_t = 2)]
-    pub frequency: u32,
+    #[arg(short = 'f', long, default_value_t = 2.0)]
+    pub frequency: f64,
 
     #[arg(
         short = 's',

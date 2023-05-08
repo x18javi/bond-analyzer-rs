@@ -11,7 +11,7 @@ pub struct Bond {
     pub coupon: f64,
     pub price: f64,
     pub day_count: DayCountConvention,
-    pub frequency: u32,
+    pub frequency: f64,
     pub settlement_date: NaiveDate,
     pub maturity_date: NaiveDate,
     pub cashflow_curve: Vec<NaiveDate>,
@@ -55,15 +55,15 @@ impl Bond {
         })
     }
 
-    fn cashflows(&self) -> BTreeMap<&NaiveDate, f64> {
-        let mut cashflows: BTreeMap<&NaiveDate, f64> = BTreeMap::new();
-        let coupon_split = self.coupon / self.frequency as f64;
+    fn cashflows(&self) -> BTreeMap<NaiveDate, f64> {
+        let mut cashflows: BTreeMap<NaiveDate, f64> = BTreeMap::new();
+        let coupon_split = self.coupon / self.frequency;
 
         for d in self.cashflow_curve.iter() {
             if d == &self.maturity_date {
-                cashflows.insert(d, coupon_split + 100.0);
+                cashflows.insert(*d, coupon_split + 100.0);
             } else {
-                cashflows.insert(d, coupon_split);
+                cashflows.insert(*d, coupon_split);
             }
         }
         cashflows
@@ -71,7 +71,7 @@ impl Bond {
 
     fn sum_pv(&self, rate: f64) -> f64 {
         let mut pv = 0.0;
-        let rate_adj = rate / self.frequency as f64;
+        let rate_adj = rate / self.frequency;
 
         let f = &self.unaccrued_fraction();
         for (i, cf) in self.cashflows().values().enumerate() {
@@ -94,7 +94,7 @@ impl Bond {
             .ok_or(BondCalculatorError::Curve)
             .and_then(|next_coupon| {
                 next_coupon
-                    .checked_sub_months(Months::new(12 / self.frequency))
+                    .checked_sub_months(Months::new(12 / self.frequency as u32))
                     .ok_or(BondCalculatorError::Date(
                         next_coupon.year(),
                         next_coupon.month(),
@@ -103,7 +103,7 @@ impl Bond {
             })?;
 
         let days_since_last_coupon: f64 =
-            self.day_count.yearfrac(prev_coupon, self.settlement_date) * self.frequency as f64;
+            self.day_count.yearfrac(prev_coupon, self.settlement_date) * self.frequency;
         Ok(days_since_last_coupon)
     }
 
@@ -115,7 +115,7 @@ impl Bond {
         let mid = (high + low) / 2.0;
         let pv = self.sum_pv(mid);
 
-        if (high - low).abs() > 0.00000001 {
+        if (high - low).abs() > 1e-9 {
             if pv > self.price {
                 self.bisection_find(mid, high)
             } else {
@@ -127,18 +127,18 @@ impl Bond {
     }
 
     fn macaulay_duration(&self) -> f64 {
-        let mut pv = 0 as f64;
-        let rate_adj = self.ytm / self.frequency as f64;
+        let mut pv = 0.0;
+        let rate_adj = self.ytm / self.frequency;
         let f = &self.unaccrued_fraction();
 
         for (i, cf) in self.cashflows().values().enumerate() {
             pv += cf * ((f + i as f64) / ((rate_adj + 1.0).powf(f + i as f64)));
         }
-        (pv / self.price) / self.frequency as f64
+        (pv / self.price) / self.frequency
     }
 
     fn modified_duration(&self) -> f64 {
-        self.macaulay_duration() / (1.0 + (self.ytm) / self.frequency as f64)
+        self.macaulay_duration() / (1.0 + (self.ytm) / self.frequency)
     }
 
     pub fn analysis_table(&mut self) -> Table {
@@ -187,7 +187,7 @@ fn round_to_3dp(x: f64) -> String {
 fn build_curve_dates(
     maturity_date: NaiveDate,
     settlement_date: NaiveDate,
-    frequency: u32,
+    frequency: f64,
 ) -> Result<Vec<NaiveDate>, BondCalculatorError> {
     let mut curve: Vec<NaiveDate> = vec![];
     let mut cf_date: NaiveDate = maturity_date;
@@ -195,7 +195,7 @@ fn build_curve_dates(
     curve.push(cf_date);
     loop {
         cf_date = cf_date
-            .checked_sub_months(Months::new(12 / frequency))
+            .checked_sub_months(Months::new(12 / frequency as u32))
             .ok_or(BondCalculatorError::Date(
                 cf_date.year(),
                 cf_date.month(),
@@ -238,7 +238,7 @@ mod tests {
         // https://www.dmo.gov.uk/media/qncg02s4/prosp140722.pdf
         let maturity_date = NaiveDate::from_ymd_opt(2025, 01, 31).unwrap();
         let settlement_date = NaiveDate::from_ymd_opt(2023, 05, 03).unwrap();
-        let frequency = 2;
+        let frequency = 2.0;
 
         let uk_2025 = build_curve_dates(maturity_date, settlement_date, frequency);
 
@@ -250,17 +250,5 @@ mod tests {
         ];
 
         assert_eq!(uk_2025.unwrap(), predicted);
-    }
-
-    #[test]
-    #[ignore]
-    fn test_cashflow_dates_no_val() {
-        let maturity_date = NaiveDate::from_ymd_opt(2025, 01, 33).unwrap();
-        let settlement_date = NaiveDate::from_ymd_opt(2023, 05, 35).unwrap();
-        let frequency = 2;
-
-        let bad_curve = build_curve_dates(maturity_date, settlement_date, frequency);
-
-        println!("{:#?}", bad_curve);
     }
 }
