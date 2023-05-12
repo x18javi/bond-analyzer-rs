@@ -90,7 +90,7 @@ impl Bond {
         //  2. subtract from this 12 divided by the payment frequency. This needs to fail if that date cannot be made
         let prev_coupon = self
             .cashflow_curve
-            .last()
+            .first()
             .ok_or(BondCalculatorError::Curve)
             .and_then(|next_coupon| {
                 next_coupon
@@ -220,6 +220,8 @@ fn build_curve_dates(
 
         curve.push(cf_date);
     }
+    // reverse dates to put them in ascending order
+    curve.reverse();
     Ok(curve)
 }
 
@@ -243,12 +245,11 @@ mod tests {
         let uk_2025 = build_curve_dates(maturity_date, settlement_date, frequency);
 
         let predicted = vec![
-            NaiveDate::from_ymd_opt(2025, 01, 31).unwrap(),
-            NaiveDate::from_ymd_opt(2024, 07, 31).unwrap(),
-            NaiveDate::from_ymd_opt(2024, 01, 31).unwrap(),
             NaiveDate::from_ymd_opt(2023, 07, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 01, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 07, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 01, 31).unwrap(),
         ];
-
         assert_eq!(uk_2025.unwrap(), predicted);
     }
 }
