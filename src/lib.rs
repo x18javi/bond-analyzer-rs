@@ -18,7 +18,7 @@ pub fn get_args() -> CliResult<args::BondCli> {
 }
 
 pub fn run(bond: args::BondCli) -> CliResult<()> {
-    let mut bond = Bond::new(bond).map_err(|e| e.to_string())?;
+    let bond = Bond::new(bond).map_err(|e| e.to_string())?;
     let cashflows_table = bond.cashflows_table();
     let analysis_table = bond.analysis_table();
 

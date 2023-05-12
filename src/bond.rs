@@ -1,4 +1,5 @@
 use chrono::{Datelike, Months, NaiveDate};
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use tabled::{builder::Builder, Table};
 use thiserror::Error;
@@ -15,7 +16,7 @@ pub struct Bond {
     pub settlement_date: NaiveDate,
     pub maturity_date: NaiveDate,
     pub cashflow_curve: Vec<NaiveDate>,
-    pub ytm: f64,
+    pub ytm: Cell<f64>,
 }
 
 #[derive(Error, Debug)]
@@ -51,10 +52,11 @@ impl Bond {
             settlement_date: bond.settlementdate,
             maturity_date: bond.maturity_date_arg,
             cashflow_curve,
-            ytm: 0.0,
+            ytm: Cell::new(0.0),
         })
     }
 
+    /*
     fn cashflows(&self) -> BTreeMap<NaiveDate, f64> {
         let mut cashflows: BTreeMap<NaiveDate, f64> = BTreeMap::new();
         let coupon_split = self.coupon / self.frequency;
@@ -68,20 +70,35 @@ impl Bond {
         }
         cashflows
     }
+    */
+
+    fn cashflows(&self) -> impl Iterator<Item = (NaiveDate, f64)> + '_ {
+        let coupon_split = self.coupon / self.frequency;
+
+        self.cashflow_curve.iter().map(move |d| {
+            if d == &self.maturity_date {
+                (*d, coupon_split + 100.0)
+            } else {
+                (*d, coupon_split)
+            }
+        })
+    }
 
     fn sum_pv(&self, rate: f64) -> f64 {
-        let mut pv = 0.0;
         let rate_adj = rate / self.frequency;
 
         let f = &self.unaccrued_fraction();
-        for (i, cf) in self.cashflows().values().enumerate() {
-            pv += cf / (((rate_adj) + 1.0).powf(i as f64 + f))
-        }
+        let cashflows_map: BTreeMap<NaiveDate, f64> = self.cashflows().collect();
+        let pv = cashflows_map
+            .values()
+            .enumerate()
+            .map(|(i, cf)| cf / (((rate_adj) + 1.0).powf(i as f64 + f)))
+            .sum();
         pv
     }
 
-    fn create_yield_to_maturity(&mut self) {
-        self.ytm = self.bisection_find(0.0, 2.0);
+    fn create_yield_to_maturity(&self) {
+        self.ytm.set(self.bisection_find(0.0, 2.0));
     }
 
     fn accrued_fraction(&self) -> Result<f64, BondCalculatorError> {
@@ -108,7 +125,9 @@ impl Bond {
     }
 
     fn unaccrued_fraction(&self) -> f64 {
-        1.0 - self.accrued_fraction().unwrap_or_else(|_| panic!("accrued fraction does not exist!"))
+        1.0 - self
+            .accrued_fraction()
+            .unwrap_or_else(|_| panic!("accrued fraction does not exist!"))
     }
 
     fn bisection_find(&self, low: f64, high: f64) -> f64 {
@@ -127,32 +146,33 @@ impl Bond {
     }
 
     fn macaulay_duration(&self) -> f64 {
-        let mut pv = 0.0;
-        let rate_adj = self.ytm / self.frequency;
+        let rate_adj = self.ytm.get() / self.frequency;
         let f = &self.unaccrued_fraction();
-
-        for (i, cf) in self.cashflows().values().enumerate() {
-            pv += cf * ((f + i as f64) / ((rate_adj + 1.0).powf(f + i as f64)));
-        }
+        let cashflows_map: BTreeMap<NaiveDate, f64> = self.cashflows().collect();
+        let pv: f64 = cashflows_map
+            .values()
+            .enumerate()
+            .map(|(i, cf)| cf * ((f + i as f64) / ((rate_adj + 1.0).powf(f + i as f64))))
+            .sum();
         (pv / self.price) / self.frequency
     }
 
     fn modified_duration(&self) -> f64 {
-        self.macaulay_duration() / (1.0 + (self.ytm) / self.frequency)
+        self.macaulay_duration() / (1.0 + (self.ytm.get()) / self.frequency)
     }
 
-    pub fn analysis_table(&mut self) -> Table {
+    pub fn analysis_table(&self) -> Table {
         self.create_yield_to_maturity();
 
         let mut builder = Builder::default();
         builder
             .set_header(["Metric", "Result"])
-            .push_record(["YTM", &(round_to_3dp(self.ytm * 100.0))])
+            .push_record(["YTM", &(round_to_3dp(self.ytm.get() * 100.0))])
             .push_record(["Macaulay Duration", &round_to_3dp(self.macaulay_duration())])
             .push_record(["Modified Duration", &round_to_3dp(self.modified_duration())]);
 
-        let table = builder.build();
-        table
+        // return built table
+        builder.build()
     }
 
     pub fn cashflows_table(&self) -> Table {
@@ -161,8 +181,9 @@ impl Bond {
         for (d, c) in self.cashflows() {
             builder.push_record([d.to_string(), c.to_string()]);
         }
-        let table = builder.build();
-        table
+
+        // return built table
+        builder.build()
     }
 }
 

@@ -6,8 +6,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 
 const PRG: &str = "bond-analyzer";
 
-const RESULT: &str = 
-"+------------+----------+
+const RESULT: &str = "+------------+----------+
 | Date       | Coupon   |
 +------------+----------+
 | 2020-07-31 | 0.6875   |
@@ -51,7 +50,7 @@ fn test_good_bond_output() -> TestResult {
             "-m",
             "2025-01-31",
             "-s",
-            "2020-02-20"
+            "2020-02-20",
         ])
         .assert()
         .stdout(predicate::str::contains(RESULT));
@@ -70,31 +69,23 @@ fn test_good_ytm() -> TestResult {
             "-m",
             "2025-01-31",
             "-s",
-            "2020-02-20"
+            "2020-02-20",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains("1.396"));
 
     Ok(())
-} 
+}
 
 #[test]
 fn test_missing_price() -> TestResult {
     Command::cargo_bin(PRG)?
-        .args(&[
-            "-c",
-            "1.375",
-            "-m",
-            "2025-01-31",
-            "-s",
-            "2020-02-20"
-        ])
+        .args(&["-c", "1.375", "-m", "2025-01-31", "-s", "2020-02-20"])
         .assert()
         .failure()
-        .stderr(
-            predicate::str::contains(
-                "the following required arguments were not provided:\n  --price <PRICE>"
+        .stderr(predicate::str::contains(
+            "the following required arguments were not provided:\n  --price <PRICE>",
         ));
     Ok(())
-}    
+}
