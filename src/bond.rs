@@ -56,22 +56,6 @@ impl Bond {
         })
     }
 
-    /*
-    fn cashflows(&self) -> BTreeMap<NaiveDate, f64> {
-        let mut cashflows: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-        let coupon_split = self.coupon / self.frequency;
-
-        for d in self.cashflow_curve.iter() {
-            if d == &self.maturity_date {
-                cashflows.insert(*d, coupon_split + 100.0);
-            } else {
-                cashflows.insert(*d, coupon_split);
-            }
-        }
-        cashflows
-    }
-    */
-
     fn cashflows(&self) -> impl Iterator<Item = (NaiveDate, f64)> + '_ {
         let coupon_split = self.coupon / self.frequency;
 
