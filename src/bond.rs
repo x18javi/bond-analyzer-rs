@@ -1,4 +1,5 @@
 use chrono::{Datelike, Months, NaiveDate};
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use tabled::{builder::Builder, Table};
 use thiserror::Error;
@@ -12,10 +13,11 @@ pub struct Bond {
     pub price: f64,
     pub day_count: DayCountConvention,
     pub frequency: f64,
+    pub accrued_fraction: f64,
     pub settlement_date: NaiveDate,
     pub maturity_date: NaiveDate,
     pub cashflow_curve: Vec<NaiveDate>,
-    pub ytm: f64,
+    pub ytm: Cell<f64>,
 }
 
 #[derive(Error, Debug)]
@@ -26,8 +28,8 @@ pub enum BondCalculatorError {
     Daycount { daycount: String },
     #[error("tried to create a bad date with year: {0} month: {1} day: {2}. Cannot continue.")]
     Date(i32, u32, u32),
-    #[error("couldn't access element in cashflows. Cannot continue.")]
-    Curve,
+//    #[error("couldn't access element in cashflows. Cannot continue.")]
+//    Curve,
 }
 
 impl Bond {
@@ -43,72 +45,63 @@ impl Bond {
         let cashflow_curve =
             build_curve_dates(bond.maturity_date_arg, bond.settlementdate, bond.frequency)?;
 
+        let accrued_fraction = accrued_fraction(
+            *cashflow_curve.first().expect("msg"),
+            bond.settlementdate,
+            bond.frequency,
+            day_count,
+        );
+
+        let price = if bond.clean {
+            calculate_dirty_price(accrued_fraction, bond.coupon, bond.price, bond.frequency)
+        } else {
+            bond.price
+        };
+
         Ok(Self {
             coupon,
-            price: bond.price,
+            price,
             day_count,
             frequency: bond.frequency,
+            accrued_fraction,
             settlement_date: bond.settlementdate,
             maturity_date: bond.maturity_date_arg,
             cashflow_curve,
-            ytm: 0.0,
+            ytm: Cell::new(0.0),
         })
     }
 
-    fn cashflows(&self) -> BTreeMap<NaiveDate, f64> {
-        let mut cashflows: BTreeMap<NaiveDate, f64> = BTreeMap::new();
+    fn cashflows(&self) -> impl Iterator<Item = (NaiveDate, f64)> + '_ {
         let coupon_split = self.coupon / self.frequency;
 
-        for d in self.cashflow_curve.iter() {
+        self.cashflow_curve.iter().map(move |d| {
             if d == &self.maturity_date {
-                cashflows.insert(*d, coupon_split + 100.0);
+                (*d, coupon_split + 100.0)
             } else {
-                cashflows.insert(*d, coupon_split);
+                (*d, coupon_split)
             }
-        }
-        cashflows
+        })
     }
 
     fn sum_pv(&self, rate: f64) -> f64 {
-        let mut pv = 0.0;
         let rate_adj = rate / self.frequency;
 
         let f = &self.unaccrued_fraction();
-        for (i, cf) in self.cashflows().values().enumerate() {
-            pv += cf / (((rate_adj) + 1.0).powf(i as f64 + f))
-        }
+        let cashflows_map: BTreeMap<NaiveDate, f64> = self.cashflows().collect();
+        let pv = cashflows_map
+            .values()
+            .enumerate()
+            .map(|(i, cf)| cf / (((rate_adj) + 1.0).powf(i as f64 + f)))
+            .sum();
         pv
     }
 
-    fn create_yield_to_maturity(&mut self) {
-        self.ytm = self.bisection_find(0.0, 2.0);
-    }
-
-    fn accrued_fraction(&self) -> Result<f64, BondCalculatorError> {
-        // create the previous coupon in the curve by:
-        //  1. get the first coupon in our curve, which needs to fail if it cant be found
-        //  2. subtract from this 12 divided by the payment frequency. This needs to fail if that date cannot be made
-        let prev_coupon = self
-            .cashflow_curve
-            .first()
-            .ok_or(BondCalculatorError::Curve)
-            .and_then(|next_coupon| {
-                next_coupon
-                    .checked_sub_months(Months::new(12 / self.frequency as u32))
-                    .ok_or(BondCalculatorError::Date(
-                        next_coupon.year(),
-                        next_coupon.month(),
-                        next_coupon.day(),
-                    ))
-            })?;
-
-        let days_since_last_coupon: f64 =
-            self.day_count.yearfrac(prev_coupon, self.settlement_date) * self.frequency;
-        Ok(days_since_last_coupon)
+    fn create_yield_to_maturity(&self) {
+        self.ytm.set(self.bisection_find(0.0, 2.0));
     }
 
     fn unaccrued_fraction(&self) -> f64 {
-        1.0 - self.accrued_fraction().unwrap_or_else(|_| panic!("accrued fraction does not exist!"))
+        1.0 - self.accrued_fraction
     }
 
     fn bisection_find(&self, low: f64, high: f64) -> f64 {
@@ -127,32 +120,39 @@ impl Bond {
     }
 
     fn macaulay_duration(&self) -> f64 {
-        let mut pv = 0.0;
-        let rate_adj = self.ytm / self.frequency;
+        let rate_adj = self.ytm.get() / self.frequency;
         let f = &self.unaccrued_fraction();
-
-        for (i, cf) in self.cashflows().values().enumerate() {
-            pv += cf * ((f + i as f64) / ((rate_adj + 1.0).powf(f + i as f64)));
-        }
+        let cashflows_map: BTreeMap<NaiveDate, f64> = self.cashflows().collect();
+        let pv: f64 = cashflows_map
+            .values()
+            .enumerate()
+            .map(|(i, cf)| cf * ((f + i as f64) / ((rate_adj + 1.0).powf(f + i as f64))))
+            .sum();
         (pv / self.price) / self.frequency
     }
 
     fn modified_duration(&self) -> f64 {
-        self.macaulay_duration() / (1.0 + (self.ytm) / self.frequency)
+        self.macaulay_duration() / (1.0 + (self.ytm.get()) / self.frequency)
     }
 
-    pub fn analysis_table(&mut self) -> Table {
+    pub fn analysis_table(&self) -> Table {
         self.create_yield_to_maturity();
 
         let mut builder = Builder::default();
         builder
             .set_header(["Metric", "Result"])
-            .push_record(["YTM", &(round_to_3dp(self.ytm * 100.0))])
-            .push_record(["Macaulay Duration", &round_to_3dp(self.macaulay_duration())])
-            .push_record(["Modified Duration", &round_to_3dp(self.modified_duration())]);
+            .push_record(["YTM", &(round_to_3dp_string(self.ytm.get() * 100.0))])
+            .push_record([
+                "Macaulay Duration",
+                &round_to_3dp_string(self.macaulay_duration()),
+            ])
+            .push_record([
+                "Modified Duration",
+                &round_to_3dp_string(self.modified_duration()),
+            ]);
 
-        let table = builder.build();
-        table
+        // return built table
+        builder.build()
     }
 
     pub fn cashflows_table(&self) -> Table {
@@ -161,8 +161,9 @@ impl Bond {
         for (d, c) in self.cashflows() {
             builder.push_record([d.to_string(), c.to_string()]);
         }
-        let table = builder.build();
-        table
+
+        // return built table
+        builder.build()
     }
 }
 
@@ -179,9 +180,44 @@ fn ndays_in_month(year: i32, month: u32) -> Option<u32> {
     })
 }
 
-fn round_to_3dp(x: f64) -> String {
+fn round_to_3dp(x: f64) -> f64 {
     let x1 = x * 1000.0;
-    format!("{}", x1.round() / 1000.0)
+    x1.round() / 1000.0
+}
+
+fn round_to_3dp_string(x: f64) -> String {
+    format!("{}", round_to_3dp(x))
+}
+
+fn accrued_fraction(
+    next_coupon: NaiveDate,
+    settlement_date: NaiveDate,
+    frequency: f64,
+    daycount: DayCountConvention,
+) -> f64 {
+    let frequency_in_months = Months::new(12 / frequency as u32);
+    let prev_coupon = next_coupon
+        .checked_sub_months(frequency_in_months)
+        .unwrap_or_else(|| {
+            panic!(
+                "could not generate the previous coupon date by subtracting {}months from {}.",
+                frequency, next_coupon
+            )
+        });
+
+    let days_since_last_coupon: f64 = daycount.yearfrac(prev_coupon, settlement_date) * frequency;
+
+    days_since_last_coupon
+}
+
+fn calculate_dirty_price(
+    days_since_last_coupon: f64,
+    coupon: f64,
+    price: f64,
+    frequency: f64,
+) -> f64 {
+    let accrued_value = (coupon / frequency) * days_since_last_coupon;
+    price + accrued_value
 }
 
 fn build_curve_dates(
@@ -230,9 +266,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn calc_dirty_price() {
+        let next_coupon = NaiveDate::from_ymd_opt(2020, 07, 31).unwrap();
+        let accrued_fraction = accrued_fraction(
+            next_coupon,
+            NaiveDate::from_ymd_opt(2020, 02, 20).unwrap(),
+            2.0,
+            DayCountConvention::ActAct,
+        );
+
+        assert!(
+            (round_to_3dp(calculate_dirty_price(accrued_fraction, 1.375, 99.8984, 2.0,)) - 99.974)
+                .abs()
+                < 1e-9
+        )
+    }
+
+    #[test]
     fn test_round_to_3dp() {
         let val = 1.3961324324;
-        assert_eq!(round_to_3dp(val), "1.396".to_string())
+        assert_eq!(round_to_3dp_string(val), "1.396".to_string())
     }
 
     #[test]
