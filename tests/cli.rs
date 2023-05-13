@@ -59,6 +59,26 @@ fn test_good_bond_output() -> TestResult {
 }
 
 #[test]
+fn test_good_bond_output_clean() -> TestResult {
+    Command::cargo_bin(PRG)?
+        .args(&[
+            "-c",
+            "1.375",
+            "--clean",
+            "-p",
+            "99.8984",
+            "-m",
+            "2025-01-31",
+            "-s",
+            "2020-02-20",
+        ])
+        .assert()
+        .stdout(predicate::str::contains(RESULT));
+
+    Ok(())
+}
+
+#[test]
 fn test_good_ytm() -> TestResult {
     Command::cargo_bin(PRG)?
         .args(&[
