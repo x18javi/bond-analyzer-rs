@@ -46,7 +46,7 @@ impl Bond {
             build_curve_dates(bond.maturity_date_arg, bond.settlementdate, bond.frequency)?;
 
         let accrued_fraction = accrued_fraction(
-            *cashflow_curve.first().expect("msg"),
+            *cashflow_curve.first().expect("error getting the next coupon date"),
             bond.settlementdate,
             bond.frequency,
             day_count,
