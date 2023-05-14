@@ -1,6 +1,7 @@
 ## Welcome!
 .. to my cli tool to help quickly analyse a bond. The args are structured like so: 
 
+```bash
 Usage: bond-analyzer.exe [OPTIONS] --coupon <COUPON> --price <PRICE> --maturity-date <MATURITY_DATE_ARG>  
 
 Options:
@@ -13,6 +14,7 @@ Options:
   -m, --maturity-date <MATURITY_DATE_ARG>
   -h, --help                               Print help
   -V, --version                            Print version
+```  
 
 Example run 
 ```bash
