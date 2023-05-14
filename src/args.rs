@@ -10,6 +10,9 @@ pub struct BondCli {
     #[arg(short = 'p', long)]
     pub price: f64,
 
+    #[arg(long, action(clap::ArgAction::SetTrue))]
+    pub clean: bool,
+
     #[arg(short = 'd', long, default_value = "act/act")]
     pub daycount: String,
 
